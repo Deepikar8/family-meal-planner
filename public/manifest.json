@@ -1,0 +1,9 @@
+{
+  "name": "Fam Dinners",
+  "short_name": "Fam Dinners",
+  "description": "AI-powered weekly dinner planning for busy families.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f97316"
+}
