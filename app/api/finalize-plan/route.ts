@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+export const dynamic = 'force-dynamic'
+
 // POST /api/finalize-plan
 // Body: { finalized: boolean }
 // Toggles the finalized state on the current week's meal plan.

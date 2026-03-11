@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 // ─── POST /api/import-recipe/from-library ─────────────────────────────────────
 // Copies a curated library recipe into the user's saved_recipes table,
 // then returns the saved record (with its id) so the caller can PATCH the plan.

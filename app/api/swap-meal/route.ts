@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import type { MealDay } from '../generate-plan/route'
 
+export const dynamic = 'force-dynamic'
+
 // Vercel free tier default is 10s — Claude swap needs up to 60s
 export const maxDuration = 60
 
