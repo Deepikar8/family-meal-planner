@@ -1,6 +1,6 @@
 # Family Meal Planner — Feature & Strategy Exploration
 
-*Working document — last updated March 9, 2026 · v2*
+*Working document — last updated March 11, 2026 · v5*
 
 ---
 
@@ -568,7 +568,7 @@ This lets you spend your early effort on **getting the product right** rather th
 
 ---
 
-## 11. What Has Been Built (v1 Progress — as of March 2026)
+## 11. What Has Been Built (v1 Progress — as of March 11, 2026 · v5)
 
 This section tracks the actual implementation status of the MVP features described above.
 
@@ -577,7 +577,7 @@ This section tracks the actual implementation status of the MVP features describ
 
 - **Frontend:** Next.js 14 with the App Router, TypeScript, Tailwind CSS
 - **Backend/DB:** Supabase (PostgreSQL, Auth, Row Level Security)
-- **AI:** Claude (Anthropic) for meal plan generation and meal swapping
+- **AI:** Claude `claude-sonnet-4-6` for plan generation, meal swapping, and recipe extraction
 - **Auth:** Supabase Auth with Google OAuth (one-tap sign-in, no email/password)
 - **Hosting:** Vercel-compatible Next.js app
 
@@ -594,65 +594,124 @@ This section tracks the actual implementation status of the MVP features describ
 - 3-step progressive household setup: "Your family" → "Dietary needs" → "Dislikes"
 - Family members added as name + type chips (Adult / Kid) — tap to add rows
 - Dietary restriction grid: 10 options including nut-free, gluten-free, dairy-free, vegetarian, vegan, halal, kosher, no-seafood, no-pork, low-carb — tap to select
-- Food dislikes: 12 quick-tap suggestions (mushrooms, spicy food, shellfish, etc.) + free-text custom input
+- Food dislikes: 12 quick-tap suggestions + free-text custom input
 - All steps skippable; progress bar visible at top
-- Household profile saved to Supabase `household_profiles` table
+- Household profile saved to Supabase `profiles` table
 - On completion → immediately redirected to dashboard where the first plan is generated
 
 **AI Dinner Plan Generation (Phase 1 — ✅ Complete)**
 - AI generates a 5-day (Mon–Fri) dinner plan on first login or on demand
 - Plan is personalized using household profile: family members, dietary restrictions, and dislikes
-- Each meal card shows: meal name, short description, emoji, cook time, difficulty, and ingredients list
-- Plan stored in Supabase `meal_plans` table with `week_start` field for weekly tracking
-- Week-of-Monday logic: looking up an existing plan for the current week on load, avoiding regeneration
+- Each meal card shows: name, description, emoji, cook time, sides suggestion, full ingredients list, and step-by-step instructions
+- Plan stored in Supabase `meal_plans` table keyed by `(user_id, week_start)`
+- Robust JSON parsing: strips markdown fences and extracts JSON from any preamble Claude adds
 
 **Individual Meal Swapping (Phase 2 — ✅ Complete)**
 - "Swap" button on each meal card calls `/api/swap-meal`
-- AI is given the full current plan as context so the replacement is intentionally different
-- Swapped meal replaces the card in-place; the rest of the plan is unchanged
-- Loading spinner per-card during swap
+- Full current plan is passed as context so the AI picks something intentionally different
+- Swapped meal replaces the card in-place with a per-card loading spinner
 
 **Grocery List (Phase 2 — ✅ Complete)**
-- Auto-generated from the current meal plan's ingredients
-- Displayed as a categorized checklist (produce, protein, dairy, pantry, etc.)
-- In-app check-off with visual strikethrough
-- Toggle between Plan view and Grocery List view via tab bar at top of dashboard
-- `GroceryList` component is a standalone module
+- Auto-generated from plan ingredients, grouped by category (produce, protein, dairy, pantry, spices)
+- In-app check-off: tap any item to mark it done — green circular checkbox with strikethrough, running count of remaining items in the header ("X of Y items remaining")
+- "🎉 You've got everything!" celebration state when all items are checked
+- Accessible via bottom bar button — renders as a full-screen overlay
+- WhatsApp export sends the full formatted list as a pre-composed message
 
 **Plan Sharing (Phase 2 — ✅ Complete)**
-- Each plan gets a unique `share_token` (UUID) stored in Supabase
-- "Share Plan" button on the dashboard: uses native Web Share API on mobile (share sheet), falls back to clipboard copy on desktop
-- Shared link resolves to `/plan/[token]` — a public, read-only view of the plan
-- `SharedPlanView` component renders the plan without requiring login
-- Toast notification confirms link was copied
-- Share token is regenerated each time a new plan is generated
+- Each plan gets a unique `share_token` UUID stored in Supabase
+- "Share" button: native Web Share API on mobile, clipboard fallback on desktop
+- Clipboard fallback gracefully handles HTTP environments: shows a bottom sheet with the link and a manual Copy button if `navigator.clipboard` is blocked
+- Shared link at `/plan/[token]` is fully public — uses a service-role admin Supabase client to bypass RLS so recipients don't need an account
+- `SharedPlanView` has two tabs: **🍽️ Meals** (expandable recipe detail per meal) and **🛒 Grocery list** (full ingredient list with check-off)
+- Grocery tab on shared view uses the same check-off interaction as the planner: tap to mark done, strikethrough + green checkbox, remaining item count, "Clear all" to reset
+- The shared view is the primary interface for the non-planner household member — they can see what's for dinner and check off items at the store without logging in
+
+**Keep / Discard / Tweak Ratings (Phase 3 — ✅ Complete)**
+- Rating UI (`RatingCard` component) sits at the bottom of every meal card
+- Three actions: 👍 Keep, ✏️ Tweak, 👎 Discard
+- Tweak opens an inline textarea with 8 quick-tap suggestion chips ("More spice", "Less salt", etc.) plus free-text
+- After rating, buttons collapse to a compact badge (e.g. "👍 Saved to favourites") with a "Change" option
+- Ratings stored in `meal_ratings` table via UPSERT — rating the same meal twice overwrites
+- Ratings feed back into future plan generation: Claude's prompt includes a "FAMILY MEAL HISTORY" section listing loved meals, banned meals, and tweak notes
+- Ratings loaded in parallel with the plan on dashboard mount; existing ratings show the correct badge state immediately
+- Ratings are re-fetched after every plan change (swap, generate, import) so badge state is always in sync with the current meal cards
+
+**Recipe Import — Single & Bulk URL (Phase 4 — ✅ Complete)**
+- Accessible via 📥 Import button in the dashboard header
+- **Single or bulk:** textarea accepts up to 10 URLs at once (one per line)
+- Each URL is fetched server-side (no CORS issues), truncated to 60KB, and passed to Claude for extraction
+- Live progress list per URL: ⏳ pending → spinner → ✅ with recipe name / ❌ with error message
+- Extracted recipes are saved to `saved_recipes` table (UPSERT by `user_id, source_url` — no duplicates)
+- After import, inline "Add to plan" button per recipe opens a day picker
+- Cancel button halts an in-progress bulk import
+
+**Recipe Library — Curated + Personal (Phase 4 — ✅ Complete)**
+- Accessible via the same Recipes modal (📥 Import button), now a three-tab sheet: **Import URL**, **Browse**, **My recipes**
+- **Browse (curated):** ~54 pre-generated family-friendly recipes across 8 cuisines (Italian, Asian, Mexican, Middle Eastern, American, Mediterranean, Indian, Japanese), stored in `curated_recipes` table
+  - Search bar filters by name or description in real time
+  - Cuisine filter chips + 👶 Kid-friendly toggle
+  - Seeder script (`scripts/seed-recipe-library.ts`) generates the full library via Claude in a single run
+- **My recipes:** all personal URL imports in reverse-chronological order
+- From either tab: tap a recipe card → day picker (Mon–Fri) → recipe replaces that day in the plan
+- Curated recipes are copied into `saved_recipes` (with a `library://` source URL) the first time a user adds one to their plan, so they appear in "My recipes" thereafter
+- Bug fix: rating badges now correctly refresh after any recipe is added via import or library, so stale Keep/Discard/Tweak states no longer persist on newly added meals
+
+**UX Naming — AI vs. Manual Distinction (Phase 4 — ✅ Complete)**
+- Core insight: "AI choosing for you" and "you choosing for yourself" are different mental modes and should be named differently
+- AI-driven actions use neutral/mechanical language: "↻ Try another" (swap), "↻ Start over" (regenerate)
+- User-driven action uses ownership language: "📖 I'll choose" (import/library modal, header button)
+- Empty state CTA: "✨ AI, plan my week →" to make the AI authorship clear on first use
+- "Start over" now triggers a confirmation dialog — prevents accidental plan loss when tapping around quickly
+
+**Finalise Plan + Locked State (Phase 5 — ✅ Complete)**
+
+This feature answers the question: "How does the planner signal that the week is decided, so family members just use the app to shop and cook?"
+
+- **Finalise button:** "✓ Finalise this week" appears in the bottom bar below "Get grocery list" while the plan is in editing mode
+- **Locked state:** once finalised, the dashboard enters a read-only mode
+  - All editing controls removed from meal cards (no swap buttons, no "I'll choose" in header)
+  - Green locked banner: "Week locked — share the link so your family can shop"
+  - Bottom bar replaces edit actions with: "↗ Share with family" (primary) + "🛒 Grocery list" + "🔓 Unlock to edit"
+- **Unlock escape hatch:** "🔓 Unlock to edit" returns the plan to full editing mode — the planner can still make changes if needed
+- **Finalized state persists** across reloads (stored as `finalized boolean` on the `meal_plans` table); new plan generation resets to unlocked
+- **Shared view as the family interface:** when the plan is finalised and the link is shared, the family member sees two tabs — meals and a grocery check-off list — with no editing controls at all. The shared view is purpose-built for shopping and cooking, not planning.
+- **Design principle:** the planner and the shopper have fundamentally different jobs. The finalise flow makes the handoff explicit rather than having both roles compete in the same UI.
 
 ---
 
 ### What's Still Ahead
 
-Based on the MVP plan, the following items from the original roadmap have **not yet been built**:
-
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Recipe URL import | Not started | Phase 4 — post-activation feature |
-| Keep / Discard / Tweak ratings | Not started | Phase 3 — needed to complete activation loop |
-| Post-dinner rating prompts (notifications) | Not started | Phase 3 |
-| Pantry inventory (receipt scan, email import) | Not started | Phase 4 |
-| Progressive feature disclosure triggers | Not started | Phase 4 |
-| WhatsApp-specific grocery export | Not started | Current share uses generic Web Share API |
-| Per-member dietary profiles | Partial | Restrictions are household-level, not per-member yet |
+| Skip a day ("eating out / leftovers") | Not started | High value for core users — need a way to mark a day as not cooking without deleting the plan |
+| Post-dinner rating prompts (push notifications) | Not started | Requires Capacitor or native wrapper for reliable push on iOS |
+| Pantry inventory (receipt scan, email import) | Not started | Phase 4 — high value, next candidate |
+| Per-member dietary profiles & per-member ratings | Not started | v2 — current ratings are household-level |
 | Breakfast / lunch / snack plans | Not started | v2 |
 | Analytics / activation funnel tracking | Not started | Phase 5 |
+| Progressive feature disclosure triggers | Not started | Phase 5 |
+| Meal variety improvement | Noted | AI sometimes re-uses loved meals from prior week; prompt tuning needed |
+| **SQL migration required** | Pending | `ALTER TABLE meal_plans ADD COLUMN IF NOT EXISTS finalized boolean DEFAULT false;` — must run in Supabase before Finalise feature works |
 
 ---
 
 ### Key Design Decisions Made During Build
 
-**Recipe content format:** Each AI-generated meal card is structured JSON: `{ day, name, description, emoji, cookTime, difficulty, ingredients[] }`. This enables the grocery list to be auto-derived from ingredients without a separate AI call.
+**Recipe content format:** Each AI-generated meal card is structured JSON with `ingredients[]` (name, amount, category) and `instructions[]`. This lets the grocery list be derived from ingredients without a separate AI call, and lets the shared view and recipe library reuse the same rendering component.
 
-**No recipe library yet:** The app currently generates recipes on-the-fly via AI rather than pulling from a curated library. This lets us launch without content ops overhead and still produce personalized, varied plans. A library/import system can overlay later.
+**Ratings via prompt injection, not a model:** Rather than building a recommendation engine, meal history is injected as plain text into Claude's prompt. This is simpler to build, easy to debug, and Claude naturally understands "never suggest X again." The tradeoff is that prompt length grows with rating history — a cap or summarisation step may be needed eventually.
 
-**Shared plan is public:** The `/plan/[token]` route does not require authentication. This was intentional — it lets the non-planning partner in a household view the plan from a WhatsApp link without needing an account.
+**Shared plan uses service-role client:** The `/plan/[token]` page bypasses Supabase RLS using the service-role key (server-side only). This lets unauthenticated family members view the plan without any login friction.
 
-**Week-based plan storage:** Plans are keyed by `(user_id, week_start)`. Generating a new plan within the same week overwrites the existing one. This keeps the data model simple and prevents orphaned plans from accumulating.
+**Curated library as a seeded table:** Rather than integrating a third-party recipe API (cost, rate limits, legal complexity), the curated library is generated once via Claude and stored in Supabase. This gives full control over content quality, keeps costs predictable, and removes any ongoing API dependency.
+
+**Week-based plan storage:** Plans are keyed by `(user_id, week_start)`. Generating a new plan within the same week overwrites the existing one — simple, no orphaned records.
+
+**Finalised state as a UX mode, not a data model:** The `finalized` boolean on `meal_plans` is lightweight — it's a UI mode switch, not a separate plan state or versioning system. This keeps the data model simple while giving the user a meaningful "I'm done planning" signal.
+
+**Two distinct audiences from one shared link:** The planner and the shopper interact with the same underlying plan but through completely different UIs. The planner sees editing controls and the finalise flow; the shopper sees a read-only tab view with meals and a check-off grocery list. This avoids the anti-pattern of having household members accidentally modify the plan when they just want to know what's for dinner.
+
+**Check-off is ephemeral by design:** Grocery check-off state is not persisted to the database — it lives in local React state only. This is intentional: re-opening the grocery list should always show the full list (you might shop across two trips, or someone else opens the same shared link). If the user wants to reset, there's a "Clear all" button.
+
+**History is not the product:** For the core audience (Overwhelmed Planner / working households with kids), showing what was cooked last week adds no value — last week is done. The ratings system captures the *effect* of history (loved meals return, discarded meals disappear) without exposing a history screen. This keeps the UI forward-looking and execution-focused.

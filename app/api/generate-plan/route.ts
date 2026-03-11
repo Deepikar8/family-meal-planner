@@ -63,6 +63,35 @@ export async function POST() {
 
   const hasKids = kids.length > 0
 
+  // Load past meal ratings to inform the plan
+  let ratingContext = ''
+  try {
+    const { data: ratingRows } = await supabase
+      .from('meal_ratings')
+      .select('meal_name, rating_type, notes')
+      .eq('user_id', user.id)
+
+    if (ratingRows && ratingRows.length > 0) {
+      const kept      = ratingRows.filter(r => r.rating_type === 'keep').map(r => r.meal_name)
+      const discarded = ratingRows.filter(r => r.rating_type === 'discard').map(r => r.meal_name)
+      const tweaked   = ratingRows.filter(r => r.rating_type === 'tweak')
+
+      const lines: string[] = []
+      if (kept.length)      lines.push(`Meals this family loved — try to include similar dishes: ${kept.join(', ')}`)
+      if (discarded.length) lines.push(`Meals this family disliked — NEVER suggest these again: ${discarded.join(', ')}`)
+      if (tweaked.length) {
+        lines.push('Meals they liked but want adjusted:')
+        tweaked.forEach(r => lines.push(`  - ${r.meal_name}${r.notes ? ` (note: ${r.notes})` : ''}`))
+      }
+
+      if (lines.length) {
+        ratingContext = '\nFAMILY MEAL HISTORY:\n' + lines.join('\n') + '\n'
+      }
+    }
+  } catch {
+    // Non-fatal — proceed without rating context if the table doesn't exist yet
+  }
+
   // ── Call Claude ─────────────────────────────────────────────────────────────
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -79,7 +108,7 @@ export async function POST() {
         content: `You are a family meal planning assistant. Generate a 5-dinner weekly plan (Monday to Friday) for this family:
 
 ${familySummary || 'A typical family of 4.'}
-
+${ratingContext}
 Rules:
 - Each dinner should take 20–45 minutes to cook on a weeknight
 ${hasKids ? '- Meals must be kid-friendly — familiar flavours, nothing too spicy or complex' : '- Adults only, so you can be more adventurous'}
@@ -124,9 +153,19 @@ Return ONLY valid JSON in this exact format — no markdown, no explanation:
     return NextResponse.json({ error: 'Claude returned no content' }, { status: 500 })
   }
 
-  // Strip markdown code blocks if present
-  const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (jsonMatch) raw = jsonMatch[1].trim()
+  // 1. Strip markdown code fences if present (```json ... ```)
+  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fenceMatch) raw = fenceMatch[1].trim()
+
+  // 2. If the response still isn't pure JSON (Claude added a preamble or trailing text),
+  //    extract the outermost { ... } object
+  if (!raw.trimStart().startsWith('{')) {
+    const start = raw.indexOf('{')
+    const end   = raw.lastIndexOf('}')
+    if (start !== -1 && end !== -1) {
+      raw = raw.slice(start, end + 1)
+    }
+  }
 
   let mealPlan: MealPlan
   try {

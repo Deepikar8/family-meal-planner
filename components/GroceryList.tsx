@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import type { MealDay, Ingredient } from '@/app/api/generate-plan/route'
 
 interface GroceryListProps {
@@ -18,8 +19,9 @@ const CATEGORY_CONFIG = {
 type Category = keyof typeof CATEGORY_CONFIG
 
 export default function GroceryList({ plan, onClose }: GroceryListProps) {
+  const [checked, setChecked] = useState<Set<string>>(new Set())
 
-  // Merge all ingredients from all meals, combining duplicates
+  // Merge all ingredients from all meals, combining duplicates by name
   const mergedMap = new Map<string, Ingredient>()
   plan.forEach(meal => {
     meal.ingredients.forEach(ing => {
@@ -40,6 +42,19 @@ export default function GroceryList({ plan, onClose }: GroceryListProps) {
     grouped.get(cat)!.push(ing)
   })
 
+  const totalItems = mergedMap.size
+  const checkedCount = checked.size
+  const remaining = totalItems - checkedCount
+
+  function toggleItem(key: string) {
+    setChecked(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
   // Build the WhatsApp text
   function buildWhatsAppText(): string {
     const lines = ['🛒 *This week\'s grocery list*\n']
@@ -58,8 +73,6 @@ export default function GroceryList({ plan, onClose }: GroceryListProps) {
     window.open(`https://wa.me/?text=${text}`, '_blank')
   }
 
-  const totalItems = mergedMap.size
-
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-white">
 
@@ -67,7 +80,11 @@ export default function GroceryList({ plan, onClose }: GroceryListProps) {
       <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Grocery list</h2>
-          <p className="text-xs text-gray-400">{totalItems} items for this week</p>
+          <p className="text-xs text-gray-400">
+            {remaining === 0
+              ? '✓ All done!'
+              : `${remaining} of ${totalItems} items remaining`}
+          </p>
         </div>
         <button
           onClick={onClose}
@@ -76,6 +93,16 @@ export default function GroceryList({ plan, onClose }: GroceryListProps) {
           ✕
         </button>
       </div>
+
+      {/* All done state */}
+      {remaining === 0 && totalItems > 0 && (
+        <div className="px-5 pt-4">
+          <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-3">
+            <span className="text-2xl">🎉</span>
+            <p className="text-sm font-semibold text-green-700">You've got everything — happy cooking!</p>
+          </div>
+        </div>
+      )}
 
       {/* List */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6 pb-32">
@@ -86,15 +113,41 @@ export default function GroceryList({ plan, onClose }: GroceryListProps) {
               <p className="text-sm font-semibold text-gray-500 mb-2">
                 {CATEGORY_CONFIG[cat].label}
               </p>
-              <ul className="space-y-2">
-                {grouped.get(cat)!.map((ing, i) => (
-                  <li key={i} className="flex items-baseline gap-3 text-sm">
-                    <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0 mt-1.5" />
-                    <span className="text-gray-800">
-                      <span className="font-medium">{ing.amount}</span> {ing.name}
-                    </span>
-                  </li>
-                ))}
+              <ul className="space-y-1">
+                {grouped.get(cat)!.map((ing) => {
+                  const key = ing.name.toLowerCase()
+                  const isChecked = checked.has(key)
+                  return (
+                    <li key={key}>
+                      <button
+                        onClick={() => toggleItem(key)}
+                        className="w-full flex items-center gap-3 py-2.5 px-3 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors text-left"
+                      >
+                        {/* Checkbox */}
+                        <span className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                          isChecked
+                            ? 'bg-green-500 border-green-500'
+                            : 'border-gray-300'
+                        }`}>
+                          {isChecked && (
+                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </span>
+                        {/* Item text */}
+                        <span className={`text-sm transition-all ${
+                          isChecked ? 'line-through text-gray-300' : 'text-gray-800'
+                        }`}>
+                          <span className={`font-medium ${isChecked ? 'text-gray-300' : ''}`}>
+                            {ing.amount}
+                          </span>{' '}
+                          {ing.name}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           ))}

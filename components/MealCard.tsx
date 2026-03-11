@@ -2,15 +2,27 @@
 
 import { useState } from 'react'
 import type { MealDay } from '@/app/api/generate-plan/route'
+import RatingCard from '@/components/RatingCard'
 
 interface MealCardProps {
   meal: MealDay
   onSwap: () => void
   swapping: boolean
+  existingRating?: { type: 'keep' | 'discard' | 'tweak'; notes?: string | null } | null
+  locked?: boolean
 }
 
-export default function MealCard({ meal, onSwap, swapping }: MealCardProps) {
+export default function MealCard({ meal, onSwap, swapping, existingRating, locked }: MealCardProps) {
   const [expanded, setExpanded] = useState(false)
+
+  async function handleRating(type: 'keep' | 'discard' | 'tweak', notes?: string) {
+    const res = await fetch('/api/rate-meal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ meal_name: meal.meal_name, rating_type: type, notes }),
+    })
+    if (!res.ok) throw new Error('Failed to save rating')
+  }
 
   return (
     <div className="bg-white rounded-2xl border-2 border-gray-100 overflow-hidden shadow-sm">
@@ -35,22 +47,24 @@ export default function MealCard({ meal, onSwap, swapping }: MealCardProps) {
             </div>
           </div>
 
-          {/* Swap button */}
-          <button
-            onClick={onSwap}
-            disabled={swapping}
-            className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-orange-500 border border-gray-200 hover:border-orange-300 rounded-xl px-3 py-2 transition-all disabled:opacity-40"
-          >
-            {swapping ? (
-              <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            ) : (
-              <span>↻</span>
-            )}
-            Swap
-          </button>
+          {/* Swap button — hidden when plan is locked */}
+          {!locked && (
+            <button
+              onClick={onSwap}
+              disabled={swapping}
+              className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-orange-500 border border-gray-200 hover:border-orange-300 rounded-xl px-3 py-2 transition-all disabled:opacity-40"
+            >
+              {swapping ? (
+                <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <span>↻</span>
+              )}
+              Try another
+            </button>
+          )}
         </div>
 
         {/* Description */}
@@ -113,6 +127,14 @@ export default function MealCard({ meal, onSwap, swapping }: MealCardProps) {
           </ol>
         </div>
       )}
+
+      {/* Rating — always visible at the bottom of each card */}
+      <RatingCard
+        mealName={meal.meal_name}
+        existingRating={existingRating}
+        onRating={handleRating}
+      />
+
     </div>
   )
 }
