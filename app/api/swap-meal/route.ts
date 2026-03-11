@@ -49,7 +49,8 @@ export async function POST(request: Request) {
 
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2048, // bumped up — a full meal with ingredients + steps can be close to 1024
+      max_tokens: 2048,
+      system: 'You are a family meal planning assistant. You respond ONLY with valid JSON — no prose, no markdown, no explanation before or after the JSON object. Your entire response must be a single valid JSON object that can be parsed with JSON.parse().',
       messages: [
         {
           role: 'user',
@@ -60,7 +61,7 @@ ${dislikes.length ? `- Avoid: ${dislikes.join(', ')}` : ''}
 - Do NOT suggest any of these (already in the plan): ${existingMeals}
 - Should take 20–45 minutes to cook
 
-Return ONLY valid JSON for a single meal — no markdown, no explanation:
+Respond with this exact JSON structure for a single meal:
 
 {
   "day": "${day}",

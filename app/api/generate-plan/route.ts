@@ -107,10 +107,11 @@ export async function POST() {
   const message = await anthropic.messages.create({
     model,
     max_tokens: 8000,
+    system: 'You are a family meal planning assistant. You respond ONLY with valid JSON — no prose, no markdown, no explanation before or after the JSON object. Your entire response must be a single valid JSON object that can be parsed with JSON.parse().',
     messages: [
       {
         role: 'user',
-        content: `You are a family meal planning assistant. Generate a 5-dinner weekly plan (Monday to Friday) for this family:
+        content: `Generate a 5-dinner weekly plan (Monday to Friday) for this family:
 
 ${familySummary || 'A typical family of 4.'}
 ${ratingContext}
@@ -124,7 +125,7 @@ ${hasKids ? '- Meals must be kid-friendly — familiar flavours, nothing too spi
 - Instructions should be clear and numbered, written for a home cook
 - For sides_suggestion: recommend 1–2 simple sides that complement the main (e.g. "Serve with steamed rice and a cucumber salad"). Keep it to one short sentence — no ingredients or instructions needed for sides.
 
-Return ONLY valid JSON in this exact format — no markdown, no explanation:
+Respond with this exact JSON structure:
 
 {
   "plan": [
