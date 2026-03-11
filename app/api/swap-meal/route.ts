@@ -76,20 +76,23 @@ Respond with this exact JSON structure for a single meal:
   "instructions": ["Step 1 ...", "Step 2 ..."]
 }`,
         },
+        // Assistant prefill forces the response to start with '{' — no preamble possible
+        {
+          role: 'assistant' as const,
+          content: '{',
+        },
       ],
     })
 
-    // Extract text and strip markdown code blocks if present (same as generate-plan)
     const textBlock = message.content?.find((b) => b.type === 'text')
-    let raw = textBlock && 'text' in textBlock ? textBlock.text : ''
+    const continuation = textBlock && 'text' in textBlock ? textBlock.text : ''
 
-    if (!raw) {
+    if (!continuation) {
       console.error('Claude returned no text for swap:', JSON.stringify(message.content))
       return NextResponse.json({ error: 'Claude returned no content' }, { status: 500 })
     }
 
-    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/)
-    if (jsonMatch) raw = jsonMatch[1].trim()
+    const raw = ('{' + continuation).trim()
 
     let meal: MealDay
     try {

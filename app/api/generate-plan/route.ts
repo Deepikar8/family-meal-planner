@@ -147,34 +147,32 @@ Respond with this exact JSON structure:
   ]
 }`,
       },
+      // Assistant prefill — forces Claude to begin its response with '{',
+      // making it physically impossible to add any preamble text before the JSON
+      {
+        role: 'assistant',
+        content: '{',
+      },
     ],
   })
 
   // ── Parse response ───────────────────────────────────────────────────────────
 
-  const textBlock = message.content?.find((b) => b.type === 'text')
-  let raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : ''
-  if (!raw) {
-    console.error('Claude returned no text content:', JSON.stringify(message.content))
-    return NextResponse.json({ error: 'Claude returned no content' }, { status: 500 })
-  }
-
-  // 1. Strip markdown code fences if present (```json ... ```)
-  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (fenceMatch) raw = fenceMatch[1].trim()
-
-  // 2. Extract the outermost { ... } — handles preamble, trailing text, or partial fences
-  const start = raw.indexOf('{')
-  const end   = raw.lastIndexOf('}')
-  if (start !== -1 && end !== -1 && end > start) {
-    raw = raw.slice(start, end + 1)
-  }
-
-  // 3. Log the stop reason — if Claude hit max_tokens the JSON will be truncated
   const stopReason = message.stop_reason
   if (stopReason !== 'end_turn') {
     console.error(`Claude stopped with reason "${stopReason}" — response may be truncated`)
   }
+
+  const textBlock = message.content?.find((b) => b.type === 'text')
+  const continuation = textBlock && 'text' in textBlock ? textBlock.text : ''
+
+  if (!continuation) {
+    console.error('Claude returned no text content. Stop reason:', stopReason, JSON.stringify(message.content))
+    return NextResponse.json({ error: 'Claude returned no content' }, { status: 500 })
+  }
+
+  // Prepend the prefill character we used to start Claude's response
+  const raw = ('{' + continuation).trim()
 
   let mealPlan: MealPlan
   try {
