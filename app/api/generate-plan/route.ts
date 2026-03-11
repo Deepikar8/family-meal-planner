@@ -106,7 +106,7 @@ export async function POST() {
 
   const message = await anthropic.messages.create({
     model,
-    max_tokens: 4096,
+    max_tokens: 8000,
     messages: [
       {
         role: 'user',
@@ -152,7 +152,7 @@ Return ONLY valid JSON in this exact format — no markdown, no explanation:
   // ── Parse response ───────────────────────────────────────────────────────────
 
   const textBlock = message.content?.find((b) => b.type === 'text')
-  let raw = textBlock && 'text' in textBlock ? textBlock.text : ''
+  let raw = textBlock && 'text' in textBlock ? textBlock.text.trim() : ''
   if (!raw) {
     console.error('Claude returned no text content:', JSON.stringify(message.content))
     return NextResponse.json({ error: 'Claude returned no content' }, { status: 500 })
@@ -162,25 +162,33 @@ Return ONLY valid JSON in this exact format — no markdown, no explanation:
   const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/)
   if (fenceMatch) raw = fenceMatch[1].trim()
 
-  // 2. If the response still isn't pure JSON (Claude added a preamble or trailing text),
-  //    extract the outermost { ... } object
-  if (!raw.trimStart().startsWith('{')) {
-    const start = raw.indexOf('{')
-    const end   = raw.lastIndexOf('}')
-    if (start !== -1 && end !== -1) {
-      raw = raw.slice(start, end + 1)
-    }
+  // 2. Extract the outermost { ... } — handles preamble, trailing text, or partial fences
+  const start = raw.indexOf('{')
+  const end   = raw.lastIndexOf('}')
+  if (start !== -1 && end !== -1 && end > start) {
+    raw = raw.slice(start, end + 1)
+  }
+
+  // 3. Log the stop reason — if Claude hit max_tokens the JSON will be truncated
+  const stopReason = message.stop_reason
+  if (stopReason !== 'end_turn') {
+    console.error(`Claude stopped with reason "${stopReason}" — response may be truncated`)
   }
 
   let mealPlan: MealPlan
   try {
     mealPlan = JSON.parse(raw)
-  } catch {
-    console.error('Failed to parse Claude response:', raw?.slice(0, 500))
-    return NextResponse.json({ error: 'Failed to parse meal plan' }, { status: 500 })
+  } catch (parseErr) {
+    console.error('Failed to parse Claude response. Stop reason:', stopReason)
+    console.error('Raw response (first 1000 chars):', raw?.slice(0, 1000))
+    return NextResponse.json(
+      { error: `Failed to parse meal plan (stop_reason: ${stopReason})` },
+      { status: 500 }
+    )
   }
 
   if (!mealPlan?.plan || !Array.isArray(mealPlan.plan)) {
+    console.error('Invalid plan structure:', JSON.stringify(mealPlan)?.slice(0, 500))
     return NextResponse.json({ error: 'Invalid meal plan structure' }, { status: 500 })
   }
 
