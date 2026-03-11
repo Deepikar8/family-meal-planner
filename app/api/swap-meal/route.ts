@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import type { MealDay } from '../generate-plan/route'
 
+// Vercel free tier default is 10s — Claude swap needs up to 60s
+export const maxDuration = 60
+
 // ─── POST /api/swap-meal ──────────────────────────────────────────────────────
 // Body: { day: string, current_plan: MealDay[] }
 // Returns: { meal: MealDay } — a single replacement meal for that day

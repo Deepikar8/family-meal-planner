@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import type { Ingredient } from '@/app/api/generate-plan/route'
 
+// Vercel free tier default is 10s — URL fetch + Claude extraction needs up to 60s
+export const maxDuration = 60
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ImportedRecipe {
