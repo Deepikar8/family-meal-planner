@@ -101,12 +101,9 @@ export async function POST() {
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-  // Claude Sonnet 4.6 (claude-3-5-sonnet was deprecated Feb 2026)
-  const model = 'claude-sonnet-4-6'
-
   const message = await anthropic.messages.create({
-    model,
-    max_tokens: 8000,
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 5000,
     system: 'You are a family meal planning assistant. You respond ONLY with valid JSON — no prose, no markdown, no explanation before or after the JSON object. Your entire response must be a single valid JSON object that can be parsed with JSON.parse().',
     messages: [
       {
@@ -147,12 +144,6 @@ Respond with this exact JSON structure:
   ]
 }`,
       },
-      // Assistant prefill — forces Claude to begin its response with '{',
-      // making it physically impossible to add any preamble text before the JSON
-      {
-        role: 'assistant',
-        content: '{',
-      },
     ],
   })
 
@@ -164,15 +155,16 @@ Respond with this exact JSON structure:
   }
 
   const textBlock = message.content?.find((b) => b.type === 'text')
-  const continuation = textBlock && 'text' in textBlock ? textBlock.text : ''
+  const rawText = textBlock && 'text' in textBlock ? textBlock.text : ''
 
-  if (!continuation) {
+  if (!rawText) {
     console.error('Claude returned no text content. Stop reason:', stopReason, JSON.stringify(message.content))
     return NextResponse.json({ error: 'Claude returned no content' }, { status: 500 })
   }
 
-  // Prepend the prefill character we used to start Claude's response
-  const raw = ('{' + continuation).trim()
+  // Extract JSON — strip any markdown fences or surrounding prose
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+  const raw = jsonMatch ? jsonMatch[0] : rawText.trim()
 
   let mealPlan: MealPlan
   try {
@@ -189,6 +181,23 @@ Respond with this exact JSON structure:
   if (!mealPlan?.plan || !Array.isArray(mealPlan.plan)) {
     console.error('Invalid plan structure:', JSON.stringify(mealPlan)?.slice(0, 500))
     return NextResponse.json({ error: 'Invalid meal plan structure' }, { status: 500 })
+  }
+
+  // ── Ensure user has a stable calendar_token ──────────────────────────────────
+
+  const { data: profileTokenRow } = await supabase
+    .from('profiles')
+    .select('calendar_token')
+    .eq('id', user.id)
+    .single()
+
+  const calendarToken = profileTokenRow?.calendar_token ?? crypto.randomUUID()
+
+  if (!profileTokenRow?.calendar_token) {
+    await supabase
+      .from('profiles')
+      .update({ calendar_token: calendarToken })
+      .eq('id', user.id)
   }
 
   // ── Save to Supabase ─────────────────────────────────────────────────────────
@@ -228,7 +237,7 @@ Respond with this exact JSON structure:
     )
   }
 
-    return NextResponse.json({ ...mealPlan, share_token: shareToken })
+    return NextResponse.json({ ...mealPlan, share_token: shareToken, calendar_token: calendarToken })
   } catch (err) {
     console.error('generate-plan error:', err)
     let errMsg = 'Unknown error'
