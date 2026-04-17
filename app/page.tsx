@@ -35,7 +35,7 @@ export default function LandingPage() {
         </div>
 
         <h1 className="text-4xl font-extrabold text-gray-900 leading-tight mb-4">
-          No more<br />"what's for dinner?"
+          No more<br />&quot;what&apos;s for dinner?&quot;
         </h1>
         <p className="text-lg text-gray-500 max-w-xs leading-relaxed mb-10">
           Get a week of family dinners planned and a grocery list ready — in under 3 minutes.

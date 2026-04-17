@@ -170,8 +170,8 @@ export default function DashboardPage() {
           onClick={() => setShareUrl(null)}>
           <div className="bg-white rounded-2xl w-full max-w-md p-5 shadow-2xl"
             onClick={e => e.stopPropagation()}>
-            <p className="text-base font-bold text-gray-900 mb-1">Share this week's dinners</p>
-            <p className="text-xs text-gray-400 mb-4">Send the plan to your family so they know what's cooking.</p>
+            <p className="text-base font-bold text-gray-900 mb-1">Share this week&apos;s dinners</p>
+            <p className="text-xs text-gray-400 mb-4">Send the plan to your family so they know what&apos;s cooking.</p>
 
             {/* WhatsApp */}
             <a
@@ -267,7 +267,7 @@ export default function DashboardPage() {
                   onClick={() => setImportOpen(true)}
                   className="flex items-center gap-1.5 text-sm font-semibold text-gray-400 border-2 border-gray-200 hover:border-orange-300 hover:text-orange-500 rounded-xl px-3 py-2 transition-all active:scale-95"
                 >
-                  <span>📖</span> I'll choose
+                  <span>📖</span> I&apos;ll choose
                 </button>
               )}
               {calendarToken && (
@@ -347,7 +347,7 @@ export default function DashboardPage() {
             <div className="text-5xl mb-5">🗓️</div>
             <h2 className="text-xl font-bold text-gray-900 mb-2">Ready to plan this week?</h2>
             <p className="text-gray-500 text-sm max-w-xs mb-8">
-              We'll pick 5 dinners tailored to your family — ready in about 20 seconds.
+              We&apos;ll pick 5 dinners tailored to your family — ready in about 20 seconds.
             </p>
             <button
               onClick={generatePlan}

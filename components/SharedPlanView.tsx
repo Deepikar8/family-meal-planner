@@ -64,7 +64,7 @@ export default function SharedPlanView({ plan, weekLabel }: Props) {
             🍽️
           </div>
           <div>
-            <h1 className="text-lg font-extrabold text-gray-900 leading-tight">This week's dinners</h1>
+            <h1 className="text-lg font-extrabold text-gray-900 leading-tight">This week&apos;s dinners</h1>
             <p className="text-xs text-gray-400">Week of {weekLabel}</p>
           </div>
         </div>
@@ -208,7 +208,7 @@ export default function SharedPlanView({ plan, weekLabel }: Props) {
           {remaining === 0 && totalItems > 0 && (
             <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-3 mb-4">
               <span className="text-2xl">🎉</span>
-              <p className="text-sm font-semibold text-green-700">You've got everything — happy cooking!</p>
+              <p className="text-sm font-semibold text-green-700">You&apos;ve got everything — happy cooking!</p>
             </div>
           )}
 

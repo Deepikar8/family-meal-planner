@@ -99,7 +99,7 @@ export default function GroceryList({ plan, onClose }: GroceryListProps) {
         <div className="px-5 pt-4">
           <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-3">
             <span className="text-2xl">🎉</span>
-            <p className="text-sm font-semibold text-green-700">You've got everything — happy cooking!</p>
+            <p className="text-sm font-semibold text-green-700">You&apos;ve got everything — happy cooking!</p>
           </div>
         </div>
       )}

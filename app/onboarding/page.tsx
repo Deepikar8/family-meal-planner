@@ -171,7 +171,7 @@ export default function OnboardingPage() {
       {/* ── Step: Household ─────────────────────────────────────────────────── */}
       {step === 'household' && (
         <div className="flex-1 flex flex-col">
-          <h2 className="text-2xl font-bold text-gray-900 mb-1">Who's eating?</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Who&apos;s eating?</h2>
           <p className="text-gray-500 mb-8 text-sm">Add everyone in your household. You can always change this later.</p>
 
           <div className="space-y-3 mb-6">
@@ -237,7 +237,7 @@ export default function OnboardingPage() {
       {step === 'restrictions' && (
         <div className="flex-1 flex flex-col">
           <h2 className="text-2xl font-bold text-gray-900 mb-1">Any dietary needs?</h2>
-          <p className="text-gray-500 mb-8 text-sm">Select all that apply. We'll make sure every dinner works for your family.</p>
+          <p className="text-gray-500 mb-8 text-sm">Select all that apply. We&apos;ll make sure every dinner works for your family.</p>
 
           <div className="grid grid-cols-2 gap-3 mb-auto">
             {DIETARY_OPTIONS.map(opt => {
@@ -274,8 +274,8 @@ export default function OnboardingPage() {
       {/* ── Step: Dislikes ──────────────────────────────────────────────────── */}
       {step === 'dislikes' && (
         <div className="flex-1 flex flex-col">
-          <h2 className="text-2xl font-bold text-gray-900 mb-1">Anything they won't eat?</h2>
-          <p className="text-gray-500 mb-6 text-sm">Optional — we'll keep these off the menu.</p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Anything they won&apos;t eat?</h2>
+          <p className="text-gray-500 mb-6 text-sm">Optional — we&apos;ll keep these off the menu.</p>
 
           {/* Suggestions */}
           <div className="flex flex-wrap gap-2 mb-6">
@@ -352,7 +352,7 @@ export default function OnboardingPage() {
             Building your first<br />dinner plan…
           </h2>
           <p className="text-gray-500 text-sm max-w-xs">
-            We're picking 5 dinners your family will actually want to eat. This only takes a moment.
+            We&apos;re picking 5 dinners your family will actually want to eat. This only takes a moment.
           </p>
           <div className="flex gap-2 mt-8">
             {[0, 1, 2].map(i => (

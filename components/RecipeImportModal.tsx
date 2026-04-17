@@ -352,7 +352,7 @@ export default function RecipeImportModal({ onClose, onAddToPlan }: RecipeImport
           {/* ── Tab: Import URL ── */}
           {tab === 'import' && (
             <div className="space-y-3 pt-2">
-              <p className="text-xs text-gray-400">Paste up to 10 recipe URLs, one per line. They'll all be imported and saved to your library.</p>
+              <p className="text-xs text-gray-400">Paste up to 10 recipe URLs, one per line. They&apos;ll all be imported and saved to your library.</p>
 
               {importError && (
                 <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-xs text-red-600">{importError}</div>
