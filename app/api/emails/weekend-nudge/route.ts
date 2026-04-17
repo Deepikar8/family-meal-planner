@@ -10,8 +10,10 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
   // Protect the route — only the cron job should call this
+  // Allow Vercel Cron (sends CRON_SECRET as header) or manual curl trigger
   const auth = req.headers.get('authorization')
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  const vercelCron = req.headers.get('x-vercel-cron-signature')
+  if (!vercelCron && auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
