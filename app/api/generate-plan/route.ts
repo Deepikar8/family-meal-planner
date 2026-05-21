@@ -1,6 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { parseJsonObject } from '@/lib/ai/json'
+import {
+  MEAL_PLAN_TOOL,
+  mealPlanFromToolUseContent,
+  validateMealPlan,
+  type MealPlan,
+} from '@/lib/ai/meal-plan'
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -8,54 +14,7 @@ export const dynamic = 'force-dynamic'
 // Vercel free tier default is 10s — Claude plan generation needs up to 60s
 export const maxDuration = 60
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface Ingredient {
-  name: string
-  amount: string
-  category: 'produce' | 'protein' | 'dairy' | 'pantry' | 'spices'
-}
-
-export interface MealDay {
-  day: string
-  meal_name: string
-  description: string
-  cook_time_minutes: number
-  emoji: string
-  sides_suggestion: string  // e.g. "Serve with steamed rice and a green salad"
-  ingredients: Ingredient[]
-  instructions: string[]
-}
-
-export interface MealPlan {
-  plan: MealDay[]
-}
-
-const EXPECTED_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-
-function validateMealPlan(mealPlan: MealPlan): string | null {
-  if (!mealPlan?.plan || !Array.isArray(mealPlan.plan)) return 'Missing plan array'
-  if (mealPlan.plan.length !== 5) return 'Plan must contain exactly 5 dinners'
-
-  for (const day of EXPECTED_DAYS) {
-    const meal = mealPlan.plan.find((m) => m.day === day)
-    if (!meal) return `Missing ${day}`
-    if (!meal.meal_name || !meal.description || !meal.emoji || !meal.sides_suggestion) {
-      return `${day} is missing required meal fields`
-    }
-    if (!Number.isFinite(meal.cook_time_minutes) || meal.cook_time_minutes < 1) {
-      return `${day} has invalid cook_time_minutes`
-    }
-    if (!Array.isArray(meal.ingredients) || meal.ingredients.length === 0) {
-      return `${day} has no ingredients`
-    }
-    if (!Array.isArray(meal.instructions) || meal.instructions.length === 0) {
-      return `${day} has no instructions`
-    }
-  }
-
-  return null
-}
+export type { Ingredient, MealDay, MealPlan } from '@/lib/ai/meal-plan'
 
 async function repairMealPlanJson(anthropic: Anthropic, rawText: string): Promise<MealPlan> {
   const repair = await anthropic.messages.create({
@@ -171,7 +130,10 @@ export async function POST() {
   const message = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 8192,
-    system: 'You are a family meal planning assistant. You respond ONLY with valid JSON — no prose, no markdown, no explanation before or after the JSON object. Your entire response must be a single valid JSON object that can be parsed with JSON.parse().',
+    temperature: 0.4,
+    system: 'You are a family meal planning assistant. Return the meal plan by calling the return_meal_plan tool. Do not answer with prose.',
+    tools: [MEAL_PLAN_TOOL],
+    tool_choice: { type: 'tool', name: MEAL_PLAN_TOOL.name },
     messages: [
       {
         role: 'user',
@@ -189,27 +151,7 @@ ${hasKids ? '- Meals must be kid-friendly — familiar flavours, nothing too spi
 - Instructions should be clear and numbered, written for a home cook
 - For sides_suggestion: recommend 1–2 simple sides that complement the main (e.g. "Serve with steamed rice and a cucumber salad"). Keep it to one short sentence — no ingredients or instructions needed for sides.
 
-Respond with this exact JSON structure:
-
-{
-  "plan": [
-    {
-      "day": "Monday",
-      "meal_name": "...",
-      "description": "One sentence, appetising description",
-      "cook_time_minutes": 30,
-      "emoji": "🍝",
-      "sides_suggestion": "Serve with steamed rice and a simple green salad",
-      "ingredients": [
-        { "name": "...", "amount": "...", "category": "produce" }
-      ],
-      "instructions": [
-        "Step 1 ...",
-        "Step 2 ..."
-      ]
-    }
-  ]
-}`,
+Call return_meal_plan with exactly five dinners, one each for Monday through Friday.`,
       },
     ],
   })
@@ -217,39 +159,46 @@ Respond with this exact JSON structure:
   // ── Parse response ───────────────────────────────────────────────────────────
 
   const stopReason = message.stop_reason
-  if (stopReason !== 'end_turn') {
+  if (stopReason !== 'end_turn' && stopReason !== 'tool_use') {
     console.error(`Claude stopped with reason "${stopReason}" — response may be truncated`)
+  }
+
+  let mealPlan = mealPlanFromToolUseContent(message.content)
+
+  if (!mealPlan) {
+    console.error('Claude did not return the meal plan tool output. Stop reason:', stopReason, JSON.stringify(message.content))
   }
 
   const textBlock = message.content?.find((b) => b.type === 'text')
   const rawText = textBlock && 'text' in textBlock ? textBlock.text : ''
 
-  if (!rawText) {
+  if (!mealPlan && !rawText) {
     console.error('Claude returned no text content. Stop reason:', stopReason, JSON.stringify(message.content))
-    return NextResponse.json({ error: 'Claude returned no content' }, { status: 500 })
+    return NextResponse.json({ error: 'Claude returned no meal plan content' }, { status: 500 })
   }
 
-  let mealPlan: MealPlan
-  try {
-    mealPlan = parseJsonObject<MealPlan>(rawText)
-  } catch (parseErr) {
-    console.error('Failed to parse Claude response. Stop reason:', stopReason, parseErr)
-    console.error('Raw response preview:', rawText.slice(0, 1000))
-    if (stopReason === 'max_tokens') {
-      return NextResponse.json(
-        { error: 'Meal plan response was truncated. Please try again.' },
-        { status: 500 }
-      )
-    }
-
+  if (!mealPlan) {
     try {
-      mealPlan = await repairMealPlanJson(anthropic, rawText)
-    } catch (repairErr) {
-      console.error('Failed to repair Claude meal plan JSON:', repairErr)
-      return NextResponse.json(
-        { error: `Failed to parse meal plan (stop_reason: ${stopReason})` },
-        { status: 500 }
-      )
+      mealPlan = parseJsonObject<MealPlan>(rawText)
+    } catch (parseErr) {
+      console.error('Failed to parse Claude response. Stop reason:', stopReason, parseErr)
+      console.error('Raw response preview:', rawText.slice(0, 1000))
+      if (stopReason === 'max_tokens') {
+        return NextResponse.json(
+          { error: 'Meal plan response was truncated. Please try again.' },
+          { status: 500 }
+        )
+      }
+
+      try {
+        mealPlan = await repairMealPlanJson(anthropic, rawText)
+      } catch (repairErr) {
+        console.error('Failed to repair Claude meal plan JSON:', repairErr)
+        return NextResponse.json(
+          { error: `Failed to parse meal plan (stop_reason: ${stopReason})` },
+          { status: 500 }
+        )
+      }
     }
   }
 
