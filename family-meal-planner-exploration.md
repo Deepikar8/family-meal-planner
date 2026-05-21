@@ -573,9 +573,9 @@ This lets you spend your early effort on **getting the product right** rather th
 This section tracks the actual implementation status of the MVP features described above.
 
 ### Tech Stack Chosen
-**Next.js 14 (App Router) + Supabase + Tailwind CSS** — aligned with the Hybrid PWA recommendation. The app is deployed as a web-first, mobile-responsive application. No native wrapper yet.
+**Next.js 16 (App Router) + Supabase + Tailwind CSS** — aligned with the Hybrid PWA recommendation. The app is deployed as a web-first, mobile-responsive application. No native wrapper yet.
 
-- **Frontend:** Next.js 14 with the App Router, TypeScript, Tailwind CSS
+- **Frontend:** Next.js 16 with the App Router, TypeScript, Tailwind CSS
 - **Backend/DB:** Supabase (PostgreSQL, Auth, Row Level Security)
 - **AI:** Claude `claude-sonnet-4-6` for plan generation, meal swapping, and recipe extraction
 - **Auth:** Supabase Auth with Google OAuth (one-tap sign-in, no email/password)
@@ -645,6 +645,7 @@ This section tracks the actual implementation status of the MVP features describ
 - Extracted recipes are saved to `saved_recipes` table (UPSERT by `user_id, source_url` — no duplicates)
 - After import, inline "Add to plan" button per recipe opens a day picker
 - Cancel button halts an in-progress bulk import
+- Import hardening: recipe URLs are validated before fetch, localhost/private-network targets are blocked, redirects are rejected, HTML content type is required, and oversized pages are rejected before model extraction.
 
 **Recipe Library — Curated + Personal (Phase 4 — ✅ Complete)**
 - Accessible via the same Recipes modal (📥 Import button), now a three-tab sheet: **Import URL**, **Browse**, **My recipes**
@@ -655,6 +656,7 @@ This section tracks the actual implementation status of the MVP features describ
 - **My recipes:** all personal URL imports in reverse-chronological order
 - From either tab: tap a recipe card → day picker (Mon–Fri) → recipe replaces that day in the plan
 - Curated recipes are copied into `saved_recipes` (with a `library://` source URL) the first time a user adds one to their plan, so they appear in "My recipes" thereafter
+- Curated recipe copies are server-authoritative: the API now accepts a recipe ID and fetches the row from `curated_recipes`, rather than trusting client-supplied recipe content
 - Bug fix: rating badges now correctly refresh after any recipe is added via import or library, so stale Keep/Discard/Tweak states no longer persist on newly added meals
 
 **UX Naming — AI vs. Manual Distinction (Phase 4 — ✅ Complete)**
@@ -678,6 +680,160 @@ This feature answers the question: "How does the planner signal that the week is
 - **Shared view as the family interface:** when the plan is finalised and the link is shared, the family member sees two tabs — meals and a grocery check-off list — with no editing controls at all. The shared view is purpose-built for shopping and cooking, not planning.
 - **Design principle:** the planner and the shopper have fundamentally different jobs. The finalise flow makes the handoff explicit rather than having both roles compete in the same UI.
 
+**Security + Reliability Hardening (Phase 5 — ✅ Complete)**
+- Upgraded to Next.js 16 and ESLint 9 to clear high/critical production advisories and align with current framework behavior
+- Cron email endpoints require the configured `CRON_SECRET` bearer token; merely sending a Vercel cron header is not accepted
+- AI-backed recipe import blocks SSRF-prone targets and validates fetched content before sending HTML to Claude
+- Meal swap now verifies a saved current-week plan exists before calling Claude, uses the saved plan as source of truth, and returns an error if persistence fails
+- Finalise/unfinalise validates boolean input and returns `404` when no current-week plan exists
+- Calendar feed emits floating local dinner times rather than fixed UTC timestamps, so 6:30pm stays 6:30pm for the subscriber
+- Added lightweight tests for cron auth, recipe URL validation, and iCal date formatting
+
+---
+
+## 12. Recipe Quality + Cost Control Design
+
+The next major product risk is not whether AI can generate recipes; it is whether the app can keep recipe quality high without letting model cost grow linearly with every click. The guiding principle is: **AI only where it adds judgment, deterministic code everywhere else, and cached/reused outputs whenever possible.**
+
+### Quality Goals
+
+All recipe flows must protect four dimensions:
+
+1. **Safety and reliability:** recipes must be cookable, complete, clear, and free of obvious unsafe preparation instructions.
+2. **Family fit:** recipes must respect dietary restrictions, dislikes, kid-friendliness, cook-time constraints, and weeknight practicality.
+3. **Taste and appeal:** meals should be varied, realistic, appetizing, and not feel like generic AI filler.
+4. **Cost discipline:** the app should minimize model calls, avoid full regenerations when a repair will do, and reuse trusted recipe content first.
+
+### Trust Levels
+
+Every recipe should eventually carry source and quality metadata:
+
+| Field | Purpose |
+|-------|---------|
+| `source_type` | `curated`, `user_imported`, `ai_generated`, `user_rated_keep`, `user_discarded` |
+| `quality_status` | `unreviewed`, `validated`, `needs_repair`, `blocked` |
+| `quality_score` | Numeric score for internal ranking/debugging |
+| `validation_issues` | Structured list of deterministic or AI-critic issues |
+| `content_hash` | Stable hash used for validation and critique caching |
+| `model_used` | Debug/cost tracking for AI-generated or AI-reviewed content |
+
+Curated and highly rated recipes should be preferred by default. AI-generated recipes should be treated as lower trust until they pass validation.
+
+### Generation Order
+
+Weekly meal planning should become curated-first:
+
+1. Pull candidate recipes from curated and user-saved recipes.
+2. Filter candidates deterministically by dietary restrictions, dislikes, cook time, kid-friendly flag, recent meals, and protein/cuisine variety.
+3. Ask AI to choose from candidates rather than inventing a full plan from scratch.
+4. If the candidate pool is too small, generate only the missing meals.
+5. Cache the final plan by household/week/profile/rating-history hash.
+
+This keeps quality more predictable and reduces the average number of expensive model-generated recipe objects.
+
+### Deterministic Validators
+
+Every recipe or plan should pass cheap code-level checks before being saved or shown:
+
+- Required fields exist: name, description, cook time, ingredients, instructions.
+- Cook time is within the target range.
+- Ingredient categories are valid.
+- Instructions are non-empty and sufficiently specific.
+- Dietary conflicts are blocked where detectable.
+- Household dislikes do not appear in meal names, ingredients, or descriptions.
+- Weekly plan does not repeat main proteins or cuisines excessively.
+- Obvious unsafe preparation language is flagged.
+- Recipe does not reference missing components, such as "add the sauce" when no sauce appears in ingredients or instructions.
+
+These checks should run on all recipe sources, including curated recipes. Curated recipes should pass once and then reuse cached validation results.
+
+### Selective AI Critic
+
+An AI critic should be used selectively, not universally. Run it for:
+
+- AI-generated recipes
+- Imported recipes with weak extraction confidence
+- Strict allergy/diet cases
+- Recipes that fail deterministic checks but appear repairable
+
+The critic must return structured JSON, not prose:
+
+```json
+{
+  "pass": false,
+  "issues": [
+    {
+      "severity": "high",
+      "field": "ingredients",
+      "issue": "Contains peanuts despite nut-free restriction"
+    }
+  ],
+  "suggested_fix": "Replace peanuts with toasted sunflower seeds"
+}
+```
+
+Curated recipes should not require AI critique on every use. That would waste cost and slow down the happy path.
+
+### Repair, Do Not Regenerate
+
+When validation fails, repair the smallest broken unit:
+
+- One meal violates a diet restriction -> replace or repair that meal only.
+- Ingredient amount is missing -> ask for a corrected ingredient list only.
+- Instructions are vague -> ask for rewritten instructions only.
+- Weekly protein variety fails -> swap one meal, not the whole plan.
+
+Full plan regeneration should be a user-visible action, not the default recovery path.
+
+### Cost Controls
+
+Cost controls should be built into the generation system, not added after launch:
+
+- Cache imported URL extraction by normalized URL.
+- Cache recipe validation by `content_hash`.
+- Cache AI critique by recipe hash plus constraints hash.
+- Cache generated recipes by prompt constraints hash.
+- Cache weekly plans by household profile, week, and rating-history hash.
+- Rate-limit AI endpoints per user during alpha.
+- Cap AI-generated meals to 1-2 per weekly plan when curated/saved recipes are available.
+- Use smaller/cheaper model calls for selection, critique, and repair; reserve stronger models for first-pass extraction or genuinely new recipe generation.
+
+### Practical Alpha Policy
+
+For the private alpha:
+
+- Prefer curated and saved recipes first.
+- Allow AI-generated recipes only for gaps.
+- Block recipes that fail high-severity validation.
+- Run AI critique only on imported/generated/strict-diet cases.
+- Log `source_type`, validation results, and estimated model usage for debugging.
+- Keep user-facing copy simple: do not expose quality scores yet.
+
+---
+
+## 13. Alpha Readiness Assessment
+
+The app is suitable for a **small private alpha** after deployment/schema verification. It is not yet ready for a public beta.
+
+### Private Alpha Scope
+
+- Share with 5-10 trusted users.
+- Tell testers the product is an alpha and data may be reset.
+- Monitor Anthropic and Resend usage manually.
+- Keep cron emails disabled or closely monitored until sender domain and cron secret are verified.
+
+### Launch Blockers Before Wider Beta
+
+| Area | Required Before Wider Sharing |
+|------|-------------------------------|
+| Database | Add real Supabase migrations for all current tables and columns |
+| Setup docs | Update `SETUP.md` to match the current schema and env requirements |
+| Email | Use a verified sender domain instead of `onboarding@resend.dev` |
+| Privacy | Add lightweight privacy/terms copy covering family data, dietary restrictions, and imported URLs |
+| Cost | Add per-user AI caps/rate limits and usage logging |
+| Observability | Add error monitoring/log review path for failed generations/imports |
+| Product | Add analytics for onboarding -> plan -> grocery -> rating activation funnel |
+
 ---
 
 ### What's Still Ahead
@@ -692,7 +848,8 @@ This feature answers the question: "How does the planner signal that the week is
 | Analytics / activation funnel tracking | Not started | Phase 5 |
 | Progressive feature disclosure triggers | Not started | Phase 5 |
 | Meal variety improvement | Noted | AI sometimes re-uses loved meals from prior week; prompt tuning needed |
-| **SQL migration required** | Pending | `ALTER TABLE meal_plans ADD COLUMN IF NOT EXISTS finalized boolean DEFAULT false;` — must run in Supabase before Finalise feature works |
+| Recipe quality pipeline | Designed | Curated-first generation, deterministic validation, selective AI critic, caching, and per-user caps |
+| **SQL migrations required** | Pending | Need checked-in Supabase migrations for current schema, not ad hoc SQL snippets |
 
 ---
 
