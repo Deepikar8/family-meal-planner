@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
+import { parseJsonObject } from '@/lib/ai/json'
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -28,6 +29,72 @@ export interface MealDay {
 
 export interface MealPlan {
   plan: MealDay[]
+}
+
+const EXPECTED_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+
+function validateMealPlan(mealPlan: MealPlan): string | null {
+  if (!mealPlan?.plan || !Array.isArray(mealPlan.plan)) return 'Missing plan array'
+  if (mealPlan.plan.length !== 5) return 'Plan must contain exactly 5 dinners'
+
+  for (const day of EXPECTED_DAYS) {
+    const meal = mealPlan.plan.find((m) => m.day === day)
+    if (!meal) return `Missing ${day}`
+    if (!meal.meal_name || !meal.description || !meal.emoji || !meal.sides_suggestion) {
+      return `${day} is missing required meal fields`
+    }
+    if (!Number.isFinite(meal.cook_time_minutes) || meal.cook_time_minutes < 1) {
+      return `${day} has invalid cook_time_minutes`
+    }
+    if (!Array.isArray(meal.ingredients) || meal.ingredients.length === 0) {
+      return `${day} has no ingredients`
+    }
+    if (!Array.isArray(meal.instructions) || meal.instructions.length === 0) {
+      return `${day} has no instructions`
+    }
+  }
+
+  return null
+}
+
+async function repairMealPlanJson(anthropic: Anthropic, rawText: string): Promise<MealPlan> {
+  const repair = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 6000,
+    system: 'You convert malformed meal-plan text into valid JSON. Return ONLY one valid JSON object and no prose.',
+    messages: [
+      {
+        role: 'user',
+        content: `Convert this response into one valid JSON object with exactly this shape:
+
+{
+  "plan": [
+    {
+      "day": "Monday",
+      "meal_name": "...",
+      "description": "...",
+      "cook_time_minutes": 30,
+      "emoji": "🍝",
+      "sides_suggestion": "...",
+      "ingredients": [
+        { "name": "...", "amount": "...", "category": "produce" }
+      ],
+      "instructions": ["Step 1 ..."]
+    }
+  ]
+}
+
+The plan must contain Monday through Friday.
+
+Malformed response:
+${rawText.slice(0, 12000)}`,
+      },
+    ],
+  })
+
+  const textBlock = repair.content?.find((b) => b.type === 'text')
+  const repairedText = textBlock && 'text' in textBlock ? textBlock.text : ''
+  return parseJsonObject<MealPlan>(repairedText)
 }
 
 // ─── POST /api/generate-plan ──────────────────────────────────────────────────
@@ -103,7 +170,7 @@ export async function POST() {
 
   const message = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 5000,
+    max_tokens: 8192,
     system: 'You are a family meal planning assistant. You respond ONLY with valid JSON — no prose, no markdown, no explanation before or after the JSON object. Your entire response must be a single valid JSON object that can be parsed with JSON.parse().',
     messages: [
       {
@@ -162,25 +229,34 @@ Respond with this exact JSON structure:
     return NextResponse.json({ error: 'Claude returned no content' }, { status: 500 })
   }
 
-  // Extract JSON — strip any markdown fences or surrounding prose
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/)
-  const raw = jsonMatch ? jsonMatch[0] : rawText.trim()
-
   let mealPlan: MealPlan
   try {
-    mealPlan = JSON.parse(raw)
+    mealPlan = parseJsonObject<MealPlan>(rawText)
   } catch (parseErr) {
-    console.error('Failed to parse Claude response. Stop reason:', stopReason)
-    console.error('Raw response (first 1000 chars):', raw?.slice(0, 1000))
-    return NextResponse.json(
-      { error: `Failed to parse meal plan (stop_reason: ${stopReason})` },
-      { status: 500 }
-    )
+    console.error('Failed to parse Claude response. Stop reason:', stopReason, parseErr)
+    console.error('Raw response preview:', rawText.slice(0, 1000))
+    if (stopReason === 'max_tokens') {
+      return NextResponse.json(
+        { error: 'Meal plan response was truncated. Please try again.' },
+        { status: 500 }
+      )
+    }
+
+    try {
+      mealPlan = await repairMealPlanJson(anthropic, rawText)
+    } catch (repairErr) {
+      console.error('Failed to repair Claude meal plan JSON:', repairErr)
+      return NextResponse.json(
+        { error: `Failed to parse meal plan (stop_reason: ${stopReason})` },
+        { status: 500 }
+      )
+    }
   }
 
-  if (!mealPlan?.plan || !Array.isArray(mealPlan.plan)) {
-    console.error('Invalid plan structure:', JSON.stringify(mealPlan)?.slice(0, 500))
-    return NextResponse.json({ error: 'Invalid meal plan structure' }, { status: 500 })
+  const validationError = validateMealPlan(mealPlan)
+  if (validationError) {
+    console.error('Invalid plan structure:', validationError, JSON.stringify(mealPlan)?.slice(0, 500))
+    return NextResponse.json({ error: `Invalid meal plan structure: ${validationError}` }, { status: 500 })
   }
 
   // ── Ensure user has a stable calendar_token ──────────────────────────────────
