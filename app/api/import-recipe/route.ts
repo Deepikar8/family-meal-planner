@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
+import { assertRecipeImportUrlIsAllowed } from '@/lib/security/recipe-url'
 import { NextResponse } from 'next/server'
 import type { Ingredient } from '@/app/api/generate-plan/route'
 
@@ -7,6 +8,8 @@ export const dynamic = 'force-dynamic'
 
 // Vercel free tier default is 10s — URL fetch + Claude extraction needs up to 60s
 export const maxDuration = 60
+
+const MAX_RECIPE_HTML_BYTES = 2_000_000
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,15 +32,23 @@ export interface ImportedRecipe {
 
 export async function POST(request: Request) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await request.json()
     const { url } = body as { url: string }
 
-    if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+    if (!url || typeof url !== 'string') {
       return NextResponse.json({ error: 'Please enter a valid URL (starting with https://)' }, { status: 400 })
+    }
+
+    let recipeUrl: URL
+    try {
+      recipeUrl = await assertRecipeImportUrlIsAllowed(url)
+    } catch (urlErr) {
+      const message = urlErr instanceof Error ? urlErr.message : 'Please enter a valid recipe URL.'
+      return NextResponse.json({ error: message }, { status: 400 })
     }
 
     // ── 1. Fetch page content server-side (avoids CORS) ──────────────────────
@@ -47,8 +58,9 @@ export async function POST(request: Request) {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 10000) // 10s timeout
 
-      const response = await fetch(url, {
+      const response = await fetch(recipeUrl.toString(), {
         signal: controller.signal,
+        redirect: 'manual',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml',
@@ -57,6 +69,10 @@ export async function POST(request: Request) {
       })
       clearTimeout(timeout)
 
+      if (response.status >= 300 && response.status < 400) {
+        return NextResponse.json({ error: 'Recipe URL redirects are not supported. Try the final recipe URL directly.' }, { status: 422 })
+      }
+
       if (!response.ok) {
         return NextResponse.json(
           { error: `Could not reach that URL (status ${response.status}). Check the link and try again.` },
@@ -64,7 +80,20 @@ export async function POST(request: Request) {
         )
       }
 
+      const contentType = response.headers.get('content-type') ?? ''
+      if (contentType && !contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
+        return NextResponse.json({ error: 'That URL does not look like an HTML recipe page.' }, { status: 422 })
+      }
+
+      const contentLength = Number(response.headers.get('content-length') ?? 0)
+      if (contentLength > MAX_RECIPE_HTML_BYTES) {
+        return NextResponse.json({ error: 'That page is too large to import. Try a direct recipe page.' }, { status: 422 })
+      }
+
       const fullHtml = await response.text()
+      if (fullHtml.length > MAX_RECIPE_HTML_BYTES) {
+        return NextResponse.json({ error: 'That page is too large to import. Try a direct recipe page.' }, { status: 422 })
+      }
       // Truncate to ~60KB to stay within Claude's context limits
       html = fullHtml.slice(0, 60000)
     } catch (fetchErr) {
@@ -156,7 +185,7 @@ ${html}`,
       .upsert(
         {
           user_id:            user.id,
-          source_url:         url,
+          source_url:         recipeUrl.toString(),
           meal_name:          String(extracted.meal_name ?? 'Imported Recipe'),
           description:        String(extracted.description ?? ''),
           cook_time_minutes:  Number(extracted.cook_time_minutes ?? 30),
@@ -188,7 +217,7 @@ ${html}`,
 
 export async function PATCH(request: Request) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 

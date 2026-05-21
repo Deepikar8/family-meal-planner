@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { isCronRequestAuthorized } from '@/lib/security/cron'
 import { Resend } from 'resend'
 import { NextResponse } from 'next/server'
 import type { MealDay } from '@/app/api/generate-plan/route'
@@ -12,10 +13,7 @@ export const dynamic = 'force-dynamic'
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 export async function POST(req: Request) {
-  // Allow Vercel Cron (sends CRON_SECRET as header) or manual curl trigger
-  const auth = req.headers.get('authorization')
-  const vercelCron = req.headers.get('x-vercel-cron-signature')
-  if (!vercelCron && auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isCronRequestAuthorized(req, process.env.CRON_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

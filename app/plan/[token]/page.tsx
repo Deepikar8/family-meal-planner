@@ -3,10 +3,11 @@ import type { MealDay } from '@/app/api/generate-plan/route'
 import SharedPlanView from '@/components/SharedPlanView'
 
 interface Props {
-  params: { token: string }
+  params: Promise<{ token: string }>
 }
 
 export default async function SharedPlanPage({ params }: Props) {
+  const { token } = await params
   // Use the service-role admin client so this public page can read the
   // meal_plans table without the viewer needing to be authenticated.
   // The anon client would be blocked by RLS since the viewer isn't the plan owner.
@@ -15,7 +16,7 @@ export default async function SharedPlanPage({ params }: Props) {
   const { data } = await supabase
     .from('meal_plans')
     .select('plan, week_start')
-    .eq('share_token', params.token)
+    .eq('share_token', token)
     .single()
 
   if (!data) {

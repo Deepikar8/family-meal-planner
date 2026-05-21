@@ -14,7 +14,7 @@ export const maxDuration = 60
 
 export async function POST(request: Request) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) {
@@ -30,6 +30,10 @@ export async function POST(request: Request) {
       current_plan: MealDay[]
     }
 
+    if (!day || typeof day !== 'string') {
+      return NextResponse.json({ error: 'day is required' }, { status: 400 })
+    }
+
     // Load profile
     const { data: profile } = await supabase
       .from('profiles')
@@ -42,8 +46,29 @@ export async function POST(request: Request) {
     const restrictions: string[] = profile?.dietary_restrictions || []
     const dislikes: string[] = profile?.dislikes || []
 
-    // Tell Claude what meals are already in the plan so it doesn't repeat them
-    const existingMeals = current_plan.map((m) => m.meal_name).join(', ')
+    const today = new Date()
+    const monday = new Date(today)
+    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+    const weekStart = monday.toISOString().split('T')[0]
+
+    const { data: existing } = await supabase
+      .from('meal_plans')
+      .select('plan')
+      .eq('user_id', user.id)
+      .eq('week_start', weekStart)
+      .single()
+
+    if (!existing?.plan) {
+      return NextResponse.json({ error: 'No plan found for this week' }, { status: 404 })
+    }
+
+    const savedPlan = existing.plan as MealDay[]
+    if (!savedPlan.some((m) => m.day === day)) {
+      return NextResponse.json({ error: 'Day not found in current plan' }, { status: 400 })
+    }
+
+    // Tell Claude what meals are already in the saved plan so it doesn't repeat them
+    const existingMeals = savedPlan.map((m) => m.meal_name).join(', ')
 
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -99,28 +124,18 @@ Respond with this exact JSON structure for a single meal:
       return NextResponse.json({ error: 'Failed to parse meal — please try again' }, { status: 500 })
     }
 
-    // Update the saved plan in Supabase
-    const today = new Date()
-    const monday = new Date(today)
-    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
-    const weekStart = monday.toISOString().split('T')[0]
-
-    const { data: existing } = await supabase
+    const updatedPlan = savedPlan.map((m: MealDay) =>
+      m.day === day ? meal : m
+    )
+    const { error: updateError } = await supabase
       .from('meal_plans')
-      .select('plan')
+      .update({ plan: updatedPlan, updated_at: new Date().toISOString() })
       .eq('user_id', user.id)
       .eq('week_start', weekStart)
-      .single()
 
-    if (existing) {
-      const updatedPlan = (existing.plan as MealDay[]).map((m: MealDay) =>
-        m.day === day ? meal : m
-      )
-      await supabase
-        .from('meal_plans')
-        .update({ plan: updatedPlan, updated_at: new Date().toISOString() })
-        .eq('user_id', user.id)
-        .eq('week_start', weekStart)
+    if (updateError) {
+      console.error('swap-meal update error:', updateError)
+      return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
 
     return NextResponse.json({ meal })

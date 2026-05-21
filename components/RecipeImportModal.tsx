@@ -136,14 +136,8 @@ export default function RecipeImportModal({ onClose, onAddToPlan }: RecipeImport
 
   const importingRef = useRef(false)
 
-  // ── Load library when tab switches ─────────────────────────────────────────
-
-  useEffect(() => {
-    if (tab === 'library' && libraryRecipes.length === 0) loadLibrary()
-    if (tab === 'mine' && mineRecipes.length === 0) loadMine()
-  }, [tab])
-
   async function loadLibrary() {
+    await Promise.resolve()
     setLibraryLoading(true)
     try {
       const res = await fetch('/api/recipe-library?tab=curated')
@@ -157,6 +151,7 @@ export default function RecipeImportModal({ onClose, onAddToPlan }: RecipeImport
   }
 
   async function loadMine() {
+    await Promise.resolve()
     setLibraryLoading(true)
     try {
       const res = await fetch('/api/recipe-library?tab=mine')
@@ -168,6 +163,13 @@ export default function RecipeImportModal({ onClose, onAddToPlan }: RecipeImport
       setLibraryLoading(false)
     }
   }
+
+  // ── Load library when tab switches ─────────────────────────────────────────
+
+  useEffect(() => {
+    if (tab === 'library' && libraryRecipes.length === 0) loadLibrary()
+    if (tab === 'mine' && mineRecipes.length === 0) loadMine()
+  }, [tab])
 
   // ── Bulk import ─────────────────────────────────────────────────────────────
 
@@ -243,7 +245,7 @@ export default function RecipeImportModal({ onClose, onAddToPlan }: RecipeImport
       const saveRes = await fetch('/api/import-recipe/from-library', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipe: dayPickerRecipe }),
+        body: JSON.stringify({ recipe_id: dayPickerRecipe.id }),
       })
       if (!saveRes.ok) {
         const d = await saveRes.json()

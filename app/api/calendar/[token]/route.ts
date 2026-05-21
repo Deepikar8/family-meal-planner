@@ -1,31 +1,18 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { DAY_OFFSET, addDaysToDateString, escIcalText, icalFloatingDateTime } from '@/lib/calendar/ics'
 import type { MealDay } from '@/app/api/generate-plan/route'
 
 export const dynamic = 'force-dynamic'
 
-const DAY_OFFSET: Record<string, number> = {
-  Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3,
-  Friday: 4, Saturday: 5, Sunday: 6,
-}
-
-// Format a Date as iCal UTC timestamp: 20240415T183000Z
-function icalDate(date: Date): string {
-  return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
-}
-
-// Escape special chars in iCal text fields
-function esc(str: string): string {
-  return str.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n')
-}
-
-export async function GET(_req: Request, { params }: { params: { token: string } }) {
+export async function GET(_req: Request, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params
   const supabase = createAdminClient()
 
   // Look up user by calendar_token
   const { data: profile } = await supabase
     .from('profiles')
     .select('id')
-    .eq('calendar_token', params.token)
+    .eq('calendar_token', token)
     .single()
 
   if (!profile) {
@@ -46,17 +33,12 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   }
 
   const meals = mealPlan.plan as MealDay[]
-  const weekStart = new Date(mealPlan.week_start + 'T00:00:00Z')
 
-  // Build VEVENT blocks — dinner at 6:30pm, 1 hour
+  // Build floating local-time VEVENT blocks — dinner at 6:30pm, 1 hour.
+  // Calendar clients render floating DTSTART/DTEND values in the subscriber's local timezone.
   const events = meals.map((meal) => {
     const offset = DAY_OFFSET[meal.day] ?? 0
-    const start = new Date(weekStart)
-    start.setUTCDate(start.getUTCDate() + offset)
-    start.setUTCHours(18, 30, 0, 0)
-
-    const end = new Date(start)
-    end.setUTCHours(19, 30, 0, 0)
+    const mealDate = addDaysToDateString(mealPlan.week_start, offset)
 
     const uid = `fam-dinners-${mealPlan.week_start}-${meal.day.toLowerCase()}@famdinners`
     const summary = `${meal.emoji} ${meal.meal_name}`
@@ -69,10 +51,10 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     return [
       'BEGIN:VEVENT',
       `UID:${uid}`,
-      `DTSTART:${icalDate(start)}`,
-      `DTEND:${icalDate(end)}`,
-      `SUMMARY:${esc(summary)}`,
-      `DESCRIPTION:${esc(desc)}`,
+      `DTSTART:${icalFloatingDateTime(mealDate, 18, 30)}`,
+      `DTEND:${icalFloatingDateTime(mealDate, 19, 30)}`,
+      `SUMMARY:${escIcalText(summary)}`,
+      `DESCRIPTION:${escIcalText(desc)}`,
       'END:VEVENT',
     ].join('\r\n')
   })
@@ -85,7 +67,6 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     'METHOD:PUBLISH',
     'X-WR-CALNAME:Fam Dinners 🍽️',
     'X-WR-CALDESC:Your weekly dinner plan',
-    'X-WR-TIMEZONE:UTC',
     ...events,
     'END:VCALENDAR',
   ].join('\r\n')
