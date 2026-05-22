@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import MealCard from '@/components/MealCard'
 import GroceryList from '@/components/GroceryList'
@@ -12,7 +12,7 @@ type View = 'plan' | 'grocery'
 type RatingMap = Record<string, { type: 'keep' | 'discard' | 'tweak'; notes?: string | null }>
 
 export default function DashboardPage() {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   const [plan, setPlan]                     = useState<MealDay[] | null>(null)
   const [shareToken, setShareToken]         = useState<string | null>(null)
@@ -32,7 +32,7 @@ export default function DashboardPage() {
   const [confirmStartOver, setConfirmStartOver] = useState(false)
 
   // ── Ratings helper — fetch and rebuild the lookup map ────────────────────────
-  async function refreshRatings() {
+  const refreshRatings = useCallback(async () => {
     const res = await fetch('/api/meal-ratings')
     if (!res.ok) return
     const data: MealRatingsResponse = await res.json()
@@ -41,7 +41,7 @@ export default function DashboardPage() {
     data.discarded.forEach(name => { map[name] = { type: 'discard' } })
     data.tweaked.forEach(({ name, notes }) => { map[name] = { type: 'tweak', notes } })
     setRatings(map)
-  }
+  }, [])
 
   // ── Load existing plan + ratings on mount ────────────────────────────────────
   useEffect(() => {
@@ -80,7 +80,7 @@ export default function DashboardPage() {
       setLoading(false)
     }
     load()
-  }, [])
+  }, [refreshRatings, supabase])
 
   // ── Generate a full week plan ────────────────────────────────────────────────
   async function generatePlan() {

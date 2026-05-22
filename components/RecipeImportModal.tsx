@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useCallback, useState, useEffect, useRef } from 'react'
 import type { ImportedRecipe } from '@/app/api/import-recipe/route'
 import type { LibraryRecipe } from '@/app/api/recipe-library/route'
 
@@ -136,7 +136,7 @@ export default function RecipeImportModal({ onClose, onAddToPlan }: RecipeImport
 
   const importingRef = useRef(false)
 
-  async function loadLibrary() {
+  const loadLibrary = useCallback(async () => {
     await Promise.resolve()
     setLibraryLoading(true)
     try {
@@ -148,9 +148,9 @@ export default function RecipeImportModal({ onClose, onAddToPlan }: RecipeImport
     } finally {
       setLibraryLoading(false)
     }
-  }
+  }, [])
 
-  async function loadMine() {
+  const loadMine = useCallback(async () => {
     await Promise.resolve()
     setLibraryLoading(true)
     try {
@@ -162,14 +162,14 @@ export default function RecipeImportModal({ onClose, onAddToPlan }: RecipeImport
     } finally {
       setLibraryLoading(false)
     }
-  }
+  }, [])
 
   // ── Load library when tab switches ─────────────────────────────────────────
 
   useEffect(() => {
     if (tab === 'library' && libraryRecipes.length === 0) loadLibrary()
     if (tab === 'mine' && mineRecipes.length === 0) loadMine()
-  }, [tab])
+  }, [libraryRecipes.length, loadLibrary, loadMine, mineRecipes.length, tab])
 
   // ── Bulk import ─────────────────────────────────────────────────────────────
 
