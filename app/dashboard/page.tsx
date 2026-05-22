@@ -142,6 +142,11 @@ export default function DashboardPage() {
     setShareUrl(url)
   }
 
+  async function signOut() {
+    await supabase.auth.signOut()
+    window.location.href = '/'
+  }
+
   // ── Grocery list overlay ─────────────────────────────────────────────────────
   if (view === 'grocery' && plan) {
     return <GroceryList plan={plan} onClose={() => setView('plan')} />
@@ -259,10 +264,10 @@ export default function DashboardPage() {
           </div>
 
           {/* Header action buttons */}
-          {plan && !generating && (
-            <div className="flex items-center gap-2">
+          {!generating && (
+            <div className="flex items-center gap-2 flex-wrap justify-end">
               {/* Only show "I'll choose" when not locked */}
-              {!finalized && (
+              {plan && !finalized && (
                 <button
                   onClick={() => setImportOpen(true)}
                   className="flex items-center gap-1.5 text-sm font-semibold text-gray-400 border-2 border-gray-200 hover:border-orange-300 hover:text-orange-500 rounded-xl px-3 py-2 transition-all active:scale-95"
@@ -270,7 +275,7 @@ export default function DashboardPage() {
                   <span>📖</span> I&apos;ll choose
                 </button>
               )}
-              {calendarToken && (
+              {plan && calendarToken && (
                 <button
                   onClick={async () => {
                     const url = `${window.location.origin}/api/calendar/${calendarToken}`
@@ -283,11 +288,19 @@ export default function DashboardPage() {
                   <span>📅</span>
                 </button>
               )}
+              {plan && (
+                <button
+                  onClick={sharePlan}
+                  className="flex items-center gap-1.5 text-sm font-semibold text-orange-500 border-2 border-orange-200 hover:border-orange-400 rounded-xl px-3 py-2 transition-all active:scale-95"
+                >
+                  <span>↗</span> Share
+                </button>
+              )}
               <button
-                onClick={sharePlan}
-                className="flex items-center gap-1.5 text-sm font-semibold text-orange-500 border-2 border-orange-200 hover:border-orange-400 rounded-xl px-3 py-2 transition-all active:scale-95"
+                onClick={signOut}
+                className="flex items-center gap-1.5 text-sm font-semibold text-gray-400 border-2 border-gray-200 hover:border-gray-300 hover:text-gray-600 rounded-xl px-3 py-2 transition-all active:scale-95"
               >
-                <span>↗</span> Share
+                Sign out
               </button>
             </div>
           )}

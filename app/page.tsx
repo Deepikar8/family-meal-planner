@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { googleOAuthOptions } from '@/lib/auth/google'
 
 export default function LandingPage() {
   const [loading, setLoading] = useState(false)
@@ -13,9 +14,7 @@ export default function LandingPage() {
     setError(null)
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
+      options: googleOAuthOptions(window.location.origin),
     })
     if (error) {
       setError('Something went wrong. Please try again.')
